@@ -100,7 +100,7 @@ class TicketInventory(Base):
     )
 
 class Reservation(Base):
-    __tablename__ = "reservation"
+    __tablename__ = "reservations"
 
     table_id = (
         CheckConstraint(
