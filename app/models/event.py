@@ -29,13 +29,13 @@ class Event(Base):
         server_default=func.now(),
         nullable=False,
     )
-    perfomances: Mapped[list["Perfomance"]] = relationship(
+    performances: Mapped[list["Performance"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
     )
 
-class Perfomance(Base):
-    __tablename__ = 'perfomances'
+class Performance(Base):
+    __tablename__ = 'performances'
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -66,5 +66,5 @@ class Perfomance(Base):
     )
 
     event: Mapped[Event] = relationship(
-        back_populates="perfomances",
+        back_populates="performances",
     )

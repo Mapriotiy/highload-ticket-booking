@@ -20,6 +20,84 @@ TICKET_INVENTORY_STATUSES = ("available", "held", "booked")
 RESERVATION_STATUSES = ("pending", "confirmed", "expired", "cancelled")
 ORDER_STATUSES = ("pending", "paid", "cancelled", "failed")
 
+class TicketInventory(Base):
+    __tablename__ = "ticket_inventory"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "performance_id",
+            "seat_id",
+            name="uq_ticket_inventory_performance_seat",
+        ),
+        CheckConstraint(
+            "status in ('available', 'held', 'booked')",
+            name="ck_ticket_inventory_status",
+        ),
+        Index(
+            "ix_ticket_inventory_performance_status",
+            "performance_id",
+            "status",
+        ),
+        Index(
+            "ix_ticket_inventory_hold_expires_at",
+            "hold_expires_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    performance_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("performances.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seat_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("seats.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reservation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("reservations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="available",
+        server_default="available",
+    )
+    price_cents: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+    hold_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
 class Reservation(Base):
     __tablename__ = "reservation"
