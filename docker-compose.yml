@@ -5,6 +5,8 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tickets:tickets@postgres:5432/tickets
     depends_on:
       - postgres
 
@@ -15,7 +17,7 @@ services:
       POSTGRES_USER: tickets
       POSTGRES_PASSWORD: tickets
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
