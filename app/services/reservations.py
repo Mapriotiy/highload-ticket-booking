@@ -68,7 +68,7 @@ async def create_reservation_naive(
     performance_id: uuid.UUID,
     seat_ids: list[uuid.UUID],
 ) -> tuple[Reservation, list[TicketInventory]]:
-    unique_seat_ids = list(set(seat_ids))
+    unique_seat_ids = list(dict.fromkeys(seat_ids))
 
     async with session.begin():
         user = await get_demo_user(session)
@@ -93,3 +93,34 @@ async def create_reservation_naive(
 
     return reservation, inventory_items
 
+
+async def create_reservation_with_lock(
+    session: AsyncSession,
+    performance_id: uuid.UUID,
+    seat_ids: list[uuid.UUID],
+) -> tuple[Reservation, list[TicketInventory]]:
+    unique_seat_ids = list(dict.fromkeys(seat_ids))
+
+    async with session.begin():
+        user = await get_demo_user(session)
+
+        result = await session.execute(
+            select(TicketInventory)
+            .where(
+                TicketInventory.performance_id == performance_id,
+                TicketInventory.seat_id.in_(unique_seat_ids),
+            )
+            .order_by(TicketInventory.seat_id)
+            .with_for_update()
+        )
+        inventory_items = list(result.scalars().all())
+
+        if len(inventory_items) != len(unique_seat_ids):
+            raise SeatsNotFoundError("Some seats were not found.")
+
+        if any(item.status != "available" for item in inventory_items):
+            raise SeatsUnavailableError("Some seats are not available.")
+
+        reservation = await build_reservation(session, user, inventory_items)
+
+    return reservation, inventory_items

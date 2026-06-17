@@ -102,7 +102,7 @@ class TicketInventory(Base):
 class Reservation(Base):
     __tablename__ = "reservations"
 
-    table_id = (
+    __table_args__ = (
         CheckConstraint(
             "status in ('pending', 'confirmed', 'expired', 'cancelled')",
             name="ck_reservations_status",
