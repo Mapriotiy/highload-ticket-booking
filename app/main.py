@@ -4,13 +4,14 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.session import engine
+from app.api.reservations import router as reservations_router
 
 app = FastAPI(
     title=settings.app_name,
     version="1.0",
     debug=settings.app_debug,
 )
-
+app.include_router(reservations_router)
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
