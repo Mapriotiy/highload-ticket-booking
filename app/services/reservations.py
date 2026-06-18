@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Reservation, ReservationItem, TicketInventory, User
+from app.models import Reservation, ReservationItem, TicketInventory, User, Order, Ticket
 
 
 class ReservationError(Exception):
@@ -124,3 +124,95 @@ async def create_reservation_with_lock(
         reservation = await build_reservation(session, user, inventory_items)
 
     return reservation, inventory_items
+
+
+class ReservationNotFoundError(ReservationError):
+    pass
+
+
+class InvalidReservationStateError(ReservationError):
+    pass
+
+
+class ReservationExpiredError(ReservationError):
+    pass
+
+
+def generate_ticket_code() -> str:
+    return f"TCK-{uuid.uuid4().hex[:12].upper()}"
+
+
+async def confirm_reservation(
+    session: AsyncSession,
+    reservation_id: uuid.UUID,
+)-> tuple[Reservation, Order, list[Ticket]]:
+    now = datetime.now(timezone.utc)
+
+    async with session.begin():
+        result = await session.execute(
+            select(Reservation)
+            .where(Reservation.id == reservation_id)
+            .with_for_update()
+        )
+        reservation = result.scalar_one_or_none()
+
+        if reservation is None:
+            raise ReservationNotFoundError("Reservation not found")
+
+        if reservation.status != "pending":
+            raise InvalidReservationStateError(
+                f"Reservation cannot be confirmed from status {reservation.status}"
+            )
+
+        if reservation.expires_at <= now:
+            reservation.status = "expired"
+            raise ReservationExpiredError("Reservation expired")
+
+        inventory_result = await session.execute(
+            select(TicketInventory)
+            .where(TicketInventory.reservation_id == reservation_id)
+            .order_by(TicketInventory.seat_id)
+            .with_for_update()
+        )
+        inventory_items = list(inventory_result.scalars().all())
+
+        if not inventory_items:
+            raise InvalidReservationStateError("Reservation has no held items.")
+
+        if any(item.status != "held" for item in inventory_items):
+            raise InvalidReservationStateError(
+                "Reservation contains items that are not held."
+            )
+
+        total_cents = sum(item.price_cents for item in inventory_items)
+
+        order = Order(
+            user_id=reservation.user_id,
+            reservation_id=reservation.id,
+            status="paid",
+            total_cents=total_cents,
+        )
+        session.add(order)
+        await session.flush()
+
+        tickets: list[Ticket] = []
+
+        for item in inventory_items:
+            item.status = "booked"
+            item.hold_expires_at = None
+            item.version += 1
+
+            ticket = Ticket(
+                order_id=order.id,
+                ticket_inventory_id=item.id,
+                code=generate_ticket_code(),
+            )
+            session.add(ticket)
+            tickets.append(ticket)
+
+        reservation.status = "confirmed"
+        reservation.confirmed_at = now
+
+        await session.flush()
+
+    return reservation, order, tickets

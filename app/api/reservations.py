@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+import uuid
 
 from app.db.dependencies import get_db_session
 from app.schemas.reservation import (
     CreateReservationRequest,
     ReservationItemResponse,
     ReservationResponse,
+    ConfirmReservationResponse,
 )
 from app.services.reservations import (
     ReservationError,
@@ -13,6 +15,10 @@ from app.services.reservations import (
     SeatsUnavailableError,
     create_reservation_naive,
     create_reservation_with_lock,
+    ReservationExpiredError,
+    ReservationNotFoundError,
+    InvalidReservationStateError,
+    confirm_reservation,
 )
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
@@ -75,3 +81,38 @@ async def create_reservation(
 
     return build_response(reservation, inventory_items)
 
+
+@router.post("/{reservation_id}/confirm", response_model=ConfirmReservationResponse)
+async def confirm_existing_reservation(
+    reservation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> ConfirmReservationResponse:
+    try:
+        reservation, order, tickets = await confirm_reservation(
+            session=session,
+            reservation_id=reservation_id,
+        )
+    except ReservationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except (InvalidReservationStateError, ReservationExpiredError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ReservationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return ConfirmReservationResponse(
+        reservation_id=reservation.id,
+        reservation_status=reservation.status,
+        order_id=order.id,
+        order_status=order.status,
+        total_cents=order.total_cents,
+        ticket_count=len(tickets),
+    )

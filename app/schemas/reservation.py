@@ -20,3 +20,23 @@ class ReservationResponse(BaseModel):
     status: str
     expires_at: datetime
     items: list[ReservationItemResponse]
+
+
+class ConfirmReservationResponse(BaseModel):
+    reservation_id: uuid.UUID
+    reservation_status: str
+    order_id: uuid.UUID
+    order_status: str
+    total_cents: int
+    ticket_count: int
+
+
+class CancelReservationResponse(BaseModel):
+    reservation_id: uuid.UUID
+    reservation_status: str
+    released_items: int
+
+
+class ExpireReservationsResponse(BaseModel):
+    expired_reservations: int
+    released_items: int
