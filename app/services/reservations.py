@@ -165,7 +165,6 @@ async def confirm_reservation(
             )
 
         if reservation.expires_at <= now:
-            reservation.status = "expired"
             raise ReservationExpiredError("Reservation expired")
 
         inventory_result = await session.execute(
