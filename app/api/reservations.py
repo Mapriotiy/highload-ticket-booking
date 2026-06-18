@@ -8,6 +8,7 @@ from app.schemas.reservation import (
     ReservationItemResponse,
     ReservationResponse,
     ConfirmReservationResponse,
+    CancelReservationResponse,
 )
 from app.services.reservations import (
     ReservationError,
@@ -19,6 +20,7 @@ from app.services.reservations import (
     ReservationNotFoundError,
     InvalidReservationStateError,
     confirm_reservation,
+    cancel_reservation,
 )
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
@@ -115,4 +117,36 @@ async def confirm_existing_reservation(
         order_status=order.status,
         total_cents=order.total_cents,
         ticket_count=len(tickets),
+    )
+
+@router.post("/{reservation_id}/cancel", response_model=CancelReservationResponse)
+async def cancel_existing_reservation(
+    reservation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> CancelReservationResponse:
+    try:
+        reservation, released_items = await cancel_reservation(
+            session=session,
+            reservation_id=reservation_id,
+        )
+    except ReservationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except InvalidReservationStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ReservationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return CancelReservationResponse(
+        reservation_id=reservation.id,
+        reservation_status=reservation.status,
+        released_items=released_items,
     )

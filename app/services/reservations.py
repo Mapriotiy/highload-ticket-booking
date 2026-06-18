@@ -216,3 +216,48 @@ async def confirm_reservation(
         await session.flush()
 
     return reservation, order, tickets
+
+
+async def cancel_reservation(
+    session: AsyncSession,
+    reservation_id: uuid.UUID,
+) -> tuple[Reservation, int]:
+    async with session.begin():
+        result = await session.execute(
+            select(Reservation)
+            .where(Reservation.id == reservation_id)
+            .with_for_update()
+        )
+        reservation = result.scalar_one_or_none()
+
+        if reservation is None:
+            raise ReservationNotFoundError("Reservation was not found.")
+
+        if reservation.status != "pending":
+            raise InvalidReservationStateError(
+                f"Reservation cannot be cancelled from status '{reservation.status}'."
+            )
+
+        inventory_result = await session.execute(
+            select(TicketInventory)
+            .where(TicketInventory.reservation_id == reservation.id)
+            .order_by(TicketInventory.seat_id)
+            .with_for_update()
+        )
+        inventory_items = list(inventory_result.scalars().all())
+
+        released_items = 0
+
+        for item in inventory_items:
+            if item.status == "held":
+                item.status = "available"
+                item.reservation_id = None
+                item.hold_expires_at = None
+                item.version += 1
+                released_items += 1
+
+        reservation.status = "cancelled"
+
+        await session.flush()
+
+    return reservation, released_items
