@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Reservation, ReservationItem, TicketInventory, User, Order, Ticket
-
+from app.services.availability import invalidate_availability_cache
 
 class ReservationError(Exception):
     pass
@@ -69,6 +69,7 @@ async def create_reservation_naive(
     seat_ids: list[uuid.UUID],
 ) -> tuple[Reservation, list[TicketInventory]]:
     unique_seat_ids = list(dict.fromkeys(seat_ids))
+    affected_performance_ids: set[uuid.UUID] = set()
 
     async with session.begin():
         user = await get_demo_user(session)
@@ -90,6 +91,10 @@ async def create_reservation_naive(
         await asyncio.sleep(0.2)
 
         reservation = await build_reservation(session, user, inventory_items)
+        affected_performance_ids = {item.performance_id for item in inventory_items}
+
+    for affected_performance_id in affected_performance_ids:
+        await invalidate_availability_cache(affected_performance_id)
 
     return reservation, inventory_items
 
@@ -100,6 +105,7 @@ async def create_reservation_with_lock(
     seat_ids: list[uuid.UUID],
 ) -> tuple[Reservation, list[TicketInventory]]:
     unique_seat_ids = list(dict.fromkeys(seat_ids))
+    affected_performance_ids: set[uuid.UUID] = set()
 
     async with session.begin():
         user = await get_demo_user(session)
@@ -122,6 +128,10 @@ async def create_reservation_with_lock(
             raise SeatsUnavailableError("Some seats are not available.")
 
         reservation = await build_reservation(session, user, inventory_items)
+        affected_performance_ids = {item.performance_id for item in inventory_items}
+
+    for affected_performance_id in affected_performance_ids:
+        await invalidate_availability_cache(affected_performance_id)
 
     return reservation, inventory_items
 
@@ -147,6 +157,7 @@ async def confirm_reservation(
     reservation_id: uuid.UUID,
 )-> tuple[Reservation, Order, list[Ticket]]:
     now = datetime.now(timezone.utc)
+    affected_performance_ids: set[uuid.UUID] = set()
 
     async with session.begin():
         result = await session.execute(
@@ -197,6 +208,7 @@ async def confirm_reservation(
         tickets: list[Ticket] = []
 
         for item in inventory_items:
+            affected_performance_ids.add(item.performance_id)
             item.status = "booked"
             item.hold_expires_at = None
             item.version += 1
@@ -214,6 +226,9 @@ async def confirm_reservation(
 
         await session.flush()
 
+    for performance_id in affected_performance_ids:
+        await invalidate_availability_cache(performance_id)
+
     return reservation, order, tickets
 
 
@@ -221,6 +236,8 @@ async def cancel_reservation(
     session: AsyncSession,
     reservation_id: uuid.UUID,
 ) -> tuple[Reservation, int]:
+    affected_performance_ids: set[uuid.UUID] = set()
+
     async with session.begin():
         result = await session.execute(
             select(Reservation)
@@ -249,6 +266,7 @@ async def cancel_reservation(
 
         for item in inventory_items:
             if item.status == "held":
+                affected_performance_ids.add(item.performance_id)
                 item.status = "available"
                 item.reservation_id = None
                 item.hold_expires_at = None
@@ -259,4 +277,8 @@ async def cancel_reservation(
 
         await session.flush()
 
+    for performance_id in affected_performance_ids:
+        await invalidate_availability_cache(performance_id)
+
     return reservation, released_items
+

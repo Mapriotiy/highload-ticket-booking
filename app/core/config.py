@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_debug: bool = True
     database_url: str
+    redis_url: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
